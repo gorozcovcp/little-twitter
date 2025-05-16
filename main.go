@@ -1,32 +1,41 @@
 package main
 
 import (
-	"sync"
+	"context"
+	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// Tweet estructura básica de un tweet
+const mongoURI = "mongodb://localhost:27017"
+
+var client *mongo.Client
+
+func init() {
+	var err error
+	client, err = mongo.Connect(context.TODO(), options.Client().ApplyURI(mongoURI))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 type Tweet struct {
-	UserID  string `json:"user_id"`
-	Content string `json:"content"`
+	UserID  string    `json:"user_id" bson:"user_id"`
+	Content string    `json:"content" bson:"content"`
+	Created time.Time `json:"created" bson:"created"`
 }
 
-// User estructura de usuario
 type User struct {
-	ID      string   `json:"id"`
-	Follows []string `json:"follows"`
+	ID      string   `json:"id" bson:"_id"`
+	Follows []string `json:"follows" bson:"follows"`
 }
-
-// In-memory storage
-var (
-	users  = sync.Map{}
-	tweets = sync.Map{}
-)
 
 func main() {
 	r := gin.Default()
-
 	r.POST("/tweet", postTweet)
 	r.POST("/follow", followUser)
 	r.GET("/timeline/:userID", getTimeline)
@@ -46,7 +55,14 @@ func postTweet(c *gin.Context) {
 		return
 	}
 
-	tweets.Store(tweet.UserID, tweet)
+	tweet.Created = time.Now()
+	collection := client.Database("uala").Collection("tweets")
+	_, err := collection.InsertOne(context.TODO(), tweet)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to post tweet"})
+		return
+	}
+
 	c.JSON(200, gin.H{"message": "Tweet posted"})
 }
 
@@ -60,32 +76,44 @@ func followUser(c *gin.Context) {
 		return
 	}
 
-	value, exists := users.Load(req.UserID)
-	if !exists {
-		value = &User{ID: req.UserID, Follows: []string{}}
+	collection := client.Database("uala").Collection("users")
+	_, err := collection.UpdateOne(
+		context.TODO(),
+		bson.M{"_id": req.UserID},
+		bson.M{"$addToSet": bson.M{"follows": req.FollowID}},
+		options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to follow user"})
+		return
 	}
-	user := value.(*User)
-	user.Follows = append(user.Follows, req.FollowID)
-	users.Store(req.UserID, user)
 
 	c.JSON(200, gin.H{"message": "User followed"})
 }
 
 func getTimeline(c *gin.Context) {
 	userID := c.Param("userID")
-	value, exists := users.Load(userID)
-	if !exists {
+	collection := client.Database("uala").Collection("users")
+
+	var user User
+	err := collection.FindOne(context.TODO(), bson.M{"_id": userID}).Decode(&user)
+	if err != nil {
 		c.JSON(404, gin.H{"error": "User not found"})
 		return
 	}
 
-	user := value.(*User)
-	var timeline []Tweet
+	tweetCollection := client.Database("uala").Collection("tweets")
+	cursor, err := tweetCollection.Find(context.TODO(), bson.M{"user_id": bson.M{"$in": user.Follows}})
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to get timeline"})
+		return
+	}
+	defer cursor.Close(context.TODO())
 
-	for _, followID := range user.Follows {
-		if tweet, ok := tweets.Load(followID); ok {
-			timeline = append(timeline, tweet.(Tweet))
-		}
+	var timeline []Tweet
+	if err := cursor.All(context.TODO(), &timeline); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to parse tweets"})
+		return
 	}
 
 	c.JSON(200, timeline)
