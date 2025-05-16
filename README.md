@@ -1,4 +1,4 @@
-# Ualá Backend Challenge - Microblogging API
+# Backend Challenge - Microblogging API
 
 ## 🌍 Descripción General
 Este proyecto implementa una versión simplificada de una plataforma de microblogging similar a Twitter. Permite:
