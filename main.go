@@ -2,18 +2,24 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var client *mongo.Client
+var (
+	client      *mongo.Client
+	redisClient *redis.Client
+	ctx         = context.Background()
+)
 
 func init() {
 	mongoURI := os.Getenv("MONGO_URI")
@@ -28,6 +34,12 @@ func init() {
 	}
 
 	ensureIndexes()
+
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
 }
 
 func ensureIndexes() {
@@ -92,6 +104,18 @@ func postTweet(c *gin.Context) {
 		return
 	}
 
+	// Invalida el cache del timeline de cada follower
+	userCollection := client.Database("uala").Collection("users")
+	cursor, err := userCollection.Find(context.TODO(), bson.M{"follows": tweet.UserID})
+	if err == nil {
+		var followers []User
+		if err := cursor.All(context.TODO(), &followers); err == nil {
+			for _, follower := range followers {
+				redisClient.Del(ctx, "timeline:"+follower.ID)
+			}
+		}
+	}
+
 	c.JSON(200, gin.H{"message": "Tweet posted"})
 }
 
@@ -117,15 +141,23 @@ func followUser(c *gin.Context) {
 		return
 	}
 
+	redisClient.Del(ctx, "timeline:"+req.UserID)
+
 	c.JSON(200, gin.H{"message": "User followed"})
 }
 
 func getTimeline(c *gin.Context) {
 	userID := c.Param("userID")
-	collection := client.Database("uala").Collection("users")
+	cacheKey := "timeline:" + userID
+	cached, err := redisClient.Get(ctx, cacheKey).Result()
+	if err == nil {
+		c.Data(200, "application/json", []byte(cached))
+		return
+	}
 
+	collection := client.Database("uala").Collection("users")
 	var user User
-	err := collection.FindOne(context.TODO(), bson.M{"_id": userID}).Decode(&user)
+	err = collection.FindOne(context.TODO(), bson.M{"_id": userID}).Decode(&user)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "User not found"})
 		return
@@ -133,7 +165,6 @@ func getTimeline(c *gin.Context) {
 
 	limitParam := c.DefaultQuery("limit", "20")
 	sinceParam := c.DefaultQuery("since", "")
-
 	limit, err := strconv.Atoi(limitParam)
 	if err != nil || limit <= 0 {
 		limit = 20
@@ -161,5 +192,7 @@ func getTimeline(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, timeline)
+	jsonData, _ := json.Marshal(timeline)
+	redisClient.Set(ctx, cacheKey, jsonData, 30*time.Second)
+	c.Data(200, "application/json", jsonData)
 }
