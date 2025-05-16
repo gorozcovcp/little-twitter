@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,6 +25,30 @@ func init() {
 	client, err = mongo.Connect(context.TODO(), options.Client().ApplyURI(mongoURI))
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	ensureIndexes()
+}
+
+func ensureIndexes() {
+	tweetCollection := client.Database("uala").Collection("tweets")
+	userCollection := client.Database("uala").Collection("users")
+
+	_, err := tweetCollection.Indexes().CreateOne(context.TODO(), mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "user_id", Value: 1},
+			{Key: "created", Value: -1},
+		},
+	})
+	if err != nil {
+		log.Fatalf("Failed to create tweet index: %v", err)
+	}
+
+	_, err = userCollection.Indexes().CreateOne(context.TODO(), mongo.IndexModel{
+		Keys: bson.D{{Key: "_id", Value: 1}},
+	})
+	if err != nil {
+		log.Fatalf("Failed to create user index: %v", err)
 	}
 }
 
@@ -106,8 +131,24 @@ func getTimeline(c *gin.Context) {
 		return
 	}
 
+	limitParam := c.DefaultQuery("limit", "20")
+	sinceParam := c.DefaultQuery("since", "")
+
+	limit, err := strconv.Atoi(limitParam)
+	if err != nil || limit <= 0 {
+		limit = 20
+	}
+
+	filter := bson.M{"user_id": bson.M{"$in": user.Follows}}
+	if sinceParam != "" {
+		if sinceTime, err := time.Parse(time.RFC3339, sinceParam); err == nil {
+			filter["created"] = bson.M{"$lt": sinceTime}
+		}
+	}
+
 	tweetCollection := client.Database("uala").Collection("tweets")
-	cursor, err := tweetCollection.Find(context.TODO(), bson.M{"user_id": bson.M{"$in": user.Follows}})
+	findOptions := options.Find().SetSort(bson.D{{Key: "created", Value: -1}}).SetLimit(int64(limit))
+	cursor, err := tweetCollection.Find(context.TODO(), filter, findOptions)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to get timeline"})
 		return
