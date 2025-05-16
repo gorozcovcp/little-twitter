@@ -1,0 +1,7 @@
+.idea/
+.vscode/
+
+local.env
+.DS_Store
+
+little-twitter

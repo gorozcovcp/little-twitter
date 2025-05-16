@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,11 +12,14 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-const mongoURI = "mongodb://localhost:27017"
-
 var client *mongo.Client
 
 func init() {
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://localhost:27017"
+	}
+
 	var err error
 	client, err = mongo.Connect(context.TODO(), options.Client().ApplyURI(mongoURI))
 	if err != nil {
