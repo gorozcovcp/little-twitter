@@ -18,7 +18,9 @@ services:
       - "6379:6379"
 
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: uala_backend
     restart: always
     ports:
@@ -28,6 +30,7 @@ services:
       - redis
     environment:
       - MONGO_URI=mongodb://mongo:27017
+      - REDIS_ADDR=redis:6379
 
 volumes:
   mongo_data:

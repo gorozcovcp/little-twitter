@@ -9,7 +9,7 @@ RUN go mod download
 COPY . .
 
 # Compilamos la aplicación
-RUN go build -o app
+RUN go build -o app ./cmd
 
 # Imagen final para ejecución
 FROM gcr.io/distroless/base-debian11
