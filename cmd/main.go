@@ -1,12 +1,15 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"net/http"
-	"syscall"
+	"os"
+	"os/signal"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorozcovcp/little-twitter/config"
 	"github.com/gorozcovcp/little-twitter/internal/domain/service"
 	"github.com/gorozcovcp/little-twitter/internal/handler"
 	mongorepo "github.com/gorozcovcp/little-twitter/internal/repository/mongo"
@@ -14,14 +17,13 @@ import (
 )
 
 func main() {
+	config := config.LoadConfig()
+
 	// MongoDB
-	mongoURI := getEnv("MONGO_URI", "mongodb://mongo:27017/?directConnection=true")
-	fmt.Printf("mongoURI: %s", mongoURI)
-	db := mongorepo.NewMongoDatabase(mongoURI, "uala")
-	fmt.Printf("db: %s", db.Name())
+	db := mongorepo.NewMongoDatabase(config.MongoURI, config.DBName)
+
 	// Redis
-	redisAddr := getEnv("REDIS_ADDR", "redis:6379")
-	redisClient := redisrepo.NewRedisClient(redisAddr)
+	redisClient := redisrepo.NewRedisClient(config.RedisAddr)
 
 	// Repositories
 	tweetRepo := mongorepo.NewMongoTweetRepository(db)
@@ -37,23 +39,45 @@ func main() {
 	userHandler := handler.NewUserHandler(userService)
 	timelineHandler := handler.NewTimelineHandler(tweetService)
 
+	r := setupRouter(tweetHandler, userHandler, timelineHandler)
+
+	srv := &http.Server{
+		Addr:    config.ServerAddr,
+		Handler: r,
+	}
+
+	// Graceful shutdown
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	log.Printf("Server running on %s", config.ServerAddr)
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %s", err)
+	}
+
+	log.Println("Server exiting")
+}
+
+func setupRouter(tweetHandler *handler.TweetHandler, userHandler *handler.UserHandler, timelineHandler *handler.TimelineHandler) *gin.Engine {
 	r := gin.Default()
 	r.POST("/tweet", tweetHandler.PostTweet)
 	r.POST("/follow", userHandler.Follow)
 	r.GET("/timeline/:userID", timelineHandler.GetTimeline)
 
-	srv := &http.Server{
-		Addr:    ":8080",
-		Handler: r,
-	}
-
-	log.Println("Server running on :8080")
-	srv.ListenAndServe()
-}
-
-func getEnv(key, fallback string) string {
-	if value, ok := syscall.Getenv(key); ok {
-		return value
-	}
-	return fallback
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	return r
 }
