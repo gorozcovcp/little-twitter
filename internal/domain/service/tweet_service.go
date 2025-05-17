@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/gorozcovcp/little-twitter/internal/domain/model"
@@ -14,6 +15,16 @@ type TweetService struct {
 	UserRepo      ports.UserRepository
 	TimelineCache ports.TimelineCache
 }
+
+type AppError struct {
+	Message string
+}
+
+func (e *AppError) Error() string {
+	return e.Message
+}
+
+var ErrTweetTooLong = &AppError{"Tweet exceeds 280 characters"}
 
 func NewTweetService(tr ports.TweetRepository, ur ports.UserRepository, tc ports.TimelineCache) *TweetService {
 	return &TweetService{
@@ -52,6 +63,7 @@ func (s *TweetService) PostTweet(ctx context.Context, userID, content string) er
 func (s *TweetService) GetTimeline(ctx context.Context, userID string, before time.Time, limit int) ([]model.Tweet, error) {
 	cached, err := s.TimelineCache.Get(ctx, userID)
 	if err == nil && cached != nil {
+		fmt.Printf("GetTimeline-----------------cached: %s\n", string(cached))
 		var tweets []model.Tweet
 		if jsonErr := json.Unmarshal(cached, &tweets); jsonErr == nil {
 			return tweets, nil
@@ -72,14 +84,4 @@ func (s *TweetService) GetTimeline(ctx context.Context, userID string, before ti
 	s.TimelineCache.Set(ctx, userID, data)
 
 	return tweets, nil
-}
-
-var ErrTweetTooLong = &AppError{"Tweet exceeds 280 characters"}
-
-type AppError struct {
-	Message string
-}
-
-func (e *AppError) Error() string {
-	return e.Message
 }

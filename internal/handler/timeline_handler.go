@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -41,9 +42,10 @@ func (h *TimelineHandler) GetTimeline(c *gin.Context) {
 
 	timeline, err := h.tweetService.GetTimeline(c.Request.Context(), userID, since, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get timeline"})
+		fmt.Printf("GetTimeline------error: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get timeline:"})
 		return
 	}
-
+	fmt.Print("GetTimeline without error\n")
 	c.JSON(http.StatusOK, timeline)
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,15 +24,17 @@ type followRequest struct {
 func (h *UserHandler) Follow(c *gin.Context) {
 	var req followRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Printf("Follow binding------error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
 	err := h.userService.Follow(c.Request.Context(), req.UserID, req.FollowID)
 	if err != nil {
+		fmt.Printf("Follow------error: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to follow user"})
 		return
 	}
 
-	c.Status(http.StatusNoContent)
+	c.JSON(http.StatusOK, gin.H{"message": "Following user"})
 }

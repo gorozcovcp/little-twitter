@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,14 +24,16 @@ type postTweetRequest struct {
 func (h *TweetHandler) PostTweet(c *gin.Context) {
 	var req postTweetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Printf("PostTweet binding------error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
 	if err := h.tweetService.PostTweet(c.Request.Context(), req.UserID, req.Content); err != nil {
+		fmt.Printf("PostTweet------error: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to post tweet"})
 		return
 	}
 
-	c.Status(http.StatusCreated)
+	c.JSON(http.StatusCreated, gin.H{"message": "Tweet posted"})
 }

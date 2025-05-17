@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/gorozcovcp/little-twitter/internal/domain/model"
@@ -27,12 +28,13 @@ func (r *MongoTweetRepository) Save(ctx context.Context, tweet *model.Tweet) err
 }
 
 func (r *MongoTweetRepository) GetByUsersBefore(ctx context.Context, userIDs []string, before time.Time, limit int) ([]model.Tweet, error) {
+	fmt.Printf("GetByUsersBefore------userIDs:%v\n", userIDs)
 	filter := bson.M{"user_id": bson.M{"$in": userIDs}}
 	if !before.IsZero() {
 		filter["created"] = bson.M{"$lt": before}
 	}
 
-	opts := options.Find().SetSort(bson.D{{Key: "created", Value: -1}}).SetLimit(int64(limit))
+	opts := options.Find().SetSort(bson.D{{Key: "created", Value: -1}}).SetLimit(int64(20))
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err
